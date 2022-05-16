@@ -1,0 +1,80 @@
+{
+    "_from": "vuetify-confirm",
+    "_id": "vuetify-confirm@2.0.6",
+    "_inBundle": false,
+    "_integrity": "sha512-WXgcj95kFbTAU0/On28iedSb71VjK0SfB6Q+MZIV/py3tAB3Yuq5PfPtT4lYYNvYHP4v3hmx4YyvdWE00Ea6DQ==",
+    "_location": "/vuetify-confirm",
+    "_phantomChildren": {},
+    "_requested": {
+      "type": "tag",
+      "registry": true,
+      "raw": "vuetify-confirm",
+      "name": "vuetify-confirm",
+      "escapedName": "vuetify-confirm",
+      "rawSpec": "",
+      "saveSpec": null,
+      "fetchSpec": "latest"
+    },
+    "_requiredBy": [
+      "#USER",
+      "/"
+    ],
+    "_resolved": "https://registry.npmjs.org/vuetify-confirm/-/vuetify-confirm-2.0.6.tgz",
+    "_shasum": "2fc790984096f2ae560f5926f32f3cba9f7a5006",
+    "_spec": "vuetify-confirm",
+    "_where": "/var/www/crm",
+    "author": {
+      "name": "Savaryn Yaroslav"
+    },
+    "browser": "dist/vuetify-confirm.js",
+    "bugs": {
+      "url": "https://github.com/yariksav/vuetify-confirm/issues"
+    },
+    "bundleDependencies": false,
+    "cdn": "dist/vuetify-confirm.min.js",
+    "dependencies": {},
+    "deprecated": false,
+    "description": "Extends vuetify with confirm dialog",
+    "devDependencies": {
+      "bili": "^1.5.8",
+      "eslint": "^4.15.0",
+      "eslint-config-airbnb-base": "^12.1.0",
+      "eslint-plugin-import": "^2.8.0",
+      "eslint-plugin-vue": "^4.2.0",
+      "rollup-plugin-vue": "^3.0.0",
+      "vue": "^2.5.13",
+      "vue-template-compiler": "^2.5.13",
+      "vuetify": "^2.0.2"
+    },
+    "homepage": "https://github.com/yariksav/vuetify-confirm",
+    "keywords": [
+      "vuetify",
+      "confirm",
+      "vuetify-confirm"
+    ],
+    "license": "MIT",
+    "main": "dist/vuetify-confirm.cjs.js",
+    "module": "dist/vuetify-confirm.m.js",
+    "name": "vuetify-confirm",
+    "peerDependencies": {
+      "vue": "*",
+      "vuetify": "*"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/yariksav/vuetify-confirm.git"
+    },
+    "scripts": {
+      "build": "npm run build:module && npm run build:browser",
+      "build:browser": "bili --name vuetify-confirm --format umd,umd-min --module-name vuetifyConfirm --external vue,vuetify/lib --global.vue \"Vue\" --plugin vue --global.vuetify/lib \"Vue.options.components\"",
+      "build:copy": "npm run build && npm run copy",
+      "build:module": "bili --name vuetify-confirm --format cjs,es --plugin vue",
+      "copy": "bash build/copy.sh",
+      "lint": "eslint --ext js --ext vue src",
+      "lint:fix": "npm run lint -- --fix",
+      "prepublish": "npm run build"
+    },
+    "types": "types/index.d.ts",
+    "unpkg": "dist/vuetify-confirm.min.js",
+    "version": "2.0.6"
+  }

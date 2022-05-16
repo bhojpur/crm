@@ -1,0 +1,23 @@
+.myPrismEditor {
+
+    pre.prism-editor__code {
+      background-color: white !important;
+      border-top: 1px solid #dcdcdc;
+      border-bottom: 1px solid #dcdcdc;
+  
+      & code {
+        white-space: pre-wrap !important;
+        //white-space: pre-wrap !important;
+      }
+  
+      code.language-markup {
+        font-weight: normal;
+        text-shadow: unset !important;
+        border-left-color: #779bb5;
+        border-left-width: 4px;
+        border-radius: 0;
+        font-family: monospace;
+        box-shadow: none;
+      }
+    }
+  }

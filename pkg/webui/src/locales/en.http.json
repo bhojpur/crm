@@ -1,0 +1,11 @@
+{
+    "http": {
+      "error": {
+        "unknown": "Unknown connection error",
+        "request": "Can't connect to the server",
+        "response": "Unable to process server response",
+        "not-responding": "The server's not responding",
+        "processing": "Error in request processing"
+      }
+    }
+  }

@@ -1,0 +1,434 @@
+package models
+
+// Copyright (c) 2018 Bhojpur Consulting Private Limited, India. All rights reserved.
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+import (
+	"bytes"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"log"
+	"mime/quotedprintable"
+	"net"
+	"net/mail"
+	"net/smtp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	u "github.com/bhojpur/crm/pkg/utils"
+	"github.com/toorop/go-dkim"
+)
+
+var smtpCh chan EmailPkg
+
+var gorutines = 30                   // число поток по отправке
+const deepMTACh = 50                 // Объем буфера из пакетов
+const dialTimeout = time.Second * 10 // максимальное время для установки соединения с smtp сервером получателя
+
+// true = "типа отправляем"
+const mock = false
+
+func init() {
+	smtpCh = make(chan EmailPkg, deepMTACh)
+	go mtaServer(smtpCh) // start MTA server
+}
+
+// Содержание письма компилируется из ViewData
+type ViewData struct {
+	Subject     string
+	PreviewText string
+
+	// Системные данные System-Data
+	Data map[string]interface{}
+
+	// Контекстные данные Payload
+	Payload map[string]interface{}
+
+	UnsubscribeURL string
+	PixelURL       string // ссылка для пикселя
+	PixelHTML      string // html <<
+}
+
+// worker MTA-Server
+func mtaServer(c <-chan EmailPkg) {
+
+	// можно доработать синхронизацию, но после тестов по отправке
+	var wg sync.WaitGroup
+	var m sync.Mutex
+
+	if c == nil {
+		log.Println("Ошибка mtaServer: channel is null!")
+		return
+	}
+
+	// target speed: 16 mail per second (62 ms / 1 mail) [~4800 / мин]
+	for pkg := range c {
+
+		if gorutines < 1 {
+			wg.Wait()
+		}
+		wg.Add(1)
+		gorutines--
+
+		go mtaSender(pkg, &wg, &m)
+
+		// fmt.Println("Ожидаем новый пакет")
+		// небольшая задержка по отправке << нужна ли?
+		// time.Sleep(100*time.Millisecond)
+	}
+}
+
+// Функция по отправке почтового пакета, обычно, запускается воркером в отдельной горутине
+// func mtaSender(pkg EmailPkg, wg *sync.WaitGroup, m *sync.Mutex) {
+func mtaSender(pkg EmailPkg, wg *sync.WaitGroup, m *sync.Mutex) {
+
+	defer func() {
+		m.Lock()
+		gorutines++
+		m.Unlock() // release lock
+	}()
+
+	// m.Lock()
+	// defer m.Unlock()
+	defer wg.Done() // отписываемся о закрытии текущей горутины
+
+	// 1. Получаем переменные для отправки письма
+	account, err := GetAccount(pkg.accountId)
+	if err != nil {
+		pkg.stopEmailSender(fmt.Sprintf("Ошибка получения аккаунта [id = %v] при отправки email-сообщения: %v", pkg.accountId, err.Error()))
+		return
+	}
+
+	user, err := account.GetUser(pkg.userId)
+	if err != nil {
+		pkg.stopEmailSender(fmt.Sprintf("Ошибка получения пользователя [id = %v] при отправки email-сообщения: %v", pkg.userId, err.Error()))
+		return
+	}
+	historyHashId := strings.ToLower(u.RandStringBytesMaskImprSrcUnsafe(12, true))
+
+	unsubscribeUrl := account.GetUnsubscribeUrl(user.HashId, historyHashId)
+	pixelURL := account.GetPixelUrl(historyHashId)
+	hashAddress := mail.Address{Address: historyHashId + "@mailer.bhojpur.net"}
+
+	// Добавляем во данные письма url отписки и счетчика открытий
+	(*pkg.viewData).UnsubscribeURL = unsubscribeUrl
+	(*pkg.viewData).PixelURL = pixelURL
+
+	// returnPath := "abuse@mailer.bhojpur.net"  // тут тоже надо hash@ адресс
+	returnPath := "smtp@bhojpur-marketing.net" // тут тоже надо hash@ адресс
+	messageId := hashAddress.Address
+
+	// Готовим фидбэк по смыслу: accountId | userId | ownerId | ownerType | MTA server (= ничего не значит)
+	feedBackId := strconv.Itoa(int(pkg.accountId)) + ":" + strconv.Itoa(int(pkg.userId)) + ":" + strconv.Itoa(int(pkg.emailSender.GetId())) + ":" +
+		u.ToCamel(pkg.emailSender.GetType()) + ":1"
+
+	// 1. Получаем compile html из email'а
+	html, err := pkg.emailTemplate.GetHTML(pkg.viewData)
+	if err != nil {
+		pkg.stopEmailSender(fmt.Sprintf("Ошибка в синтаксисе email-шаблона id = %v: %v", pkg.emailTemplate.Id, err.Error()))
+		return
+	}
+
+	// 2. Собираем хедеры
+	headers := getHeaders(
+		mail.Address{Name: pkg.emailBox.Name, Address: pkg.emailBox.Box + "@" + pkg.webSite.Hostname},
+		pkg.To, pkg.subject, messageId, feedBackId, unsubscribeUrl, historyHashId)
+
+	// 3. Создаем тело сообщения с хедерами и html
+	if pkg.webSite.Id < 1 || pkg.emailBox.Id < 1 {
+		pkg.stopEmailSender("Техническая ошибка: не удалось установить отправителя: webSite || emailBox id < 1")
+		return
+	}
+
+	body, err := getSignBody(headers, html, pkg.webSite)
+	if err != nil {
+		pkg.stopEmailSender(fmt.Sprintf("Ошибка в процессе DKIM-подписи письма: %v", err.Error()))
+		return
+	}
+
+	if mock {
+		// fmt.Println("Типа отсылаем...: ", time.Now().String())
+		fmt.Println("unsubscribeUrl: ", unsubscribeUrl)
+		fmt.Println("pixelURL: ", pixelURL)
+		// n := rand.Intn(3) // n will be between 0 and 10
+		// fmt.Printf("Sleeping %d seconds...\n", n)
+		// time.Sleep(time.Second * 5)
+	} else {
+
+		// 4. Делаем коннект к почтовому серверу получателя
+		client, bounceLevel, err := getClientByEmail(pkg.To.Address)
+		if err != nil {
+			pkg.bounced(bounceLevel, fmt.Sprintf("Неудается установить connect с MX-сервером: %v", err.Error()))
+			return
+		}
+
+		// 5. Отсылаем сообщение | требует времени !
+		bounceLevel, err = sendMailByClient(client, body, pkg.To.Address, returnPath)
+		if err != nil {
+			pkg.bounced(bounceLevel, fmt.Sprintf("Ошибка во время отправки письма: %v", err.Error()))
+			return
+		}
+	}
+
+	// 6. Заносим в историю
+
+	// Обновляем / удаляем задачу в воркере отправки писем для автоматической отправки писем
+	queueCompleted := pkg.handleQueue()
+
+	history := &MTAHistory{
+		HashId:          historyHashId,
+		AccountId:       pkg.accountId,
+		UserId:          &pkg.userId,
+		Email:           *user.Email,
+		OwnerId:         pkg.emailSender.GetId(),
+		OwnerType:       pkg.emailSender.GetType(),
+		EmailTemplateId: &pkg.emailTemplate.Id,
+		QueueStepId:     &pkg.queueStepId, // выполненный шаг
+		QueueCompleted:  queueCompleted,
+	}
+
+	// отлично, создаем запись в истории!
+	_, err = history.create()
+	if err != nil {
+		log.Printf("Ошибка создания записи в истории отправки email-писем. AccountId [id = %v], OwnerId: [id = %v]: %v", pkg.accountId, pkg.emailSender.GetId(), err.Error())
+	} else {
+		// fmt.Println("Запись в истории создана!")
+	}
+
+}
+
+func SendEmail(pkg EmailPkg) {
+	/*select {
+	case smtpCh <- pkg:
+		fmt.Println("add msg to message channel")
+	}*/
+	smtpCh <- pkg
+}
+
+func getHeaders(from, to mail.Address, subject string, messageId, feedbackId, unsubscribeUrl, historyHashId string) *map[string]string {
+	if len([]rune(messageId)) > 40 {
+		messageId = "10001@mailer.bhojpur.net"
+	}
+
+	headers := make(map[string]string)
+
+	address := from
+	headers["From"] = address.String()
+	headers["To"] = to.Address
+	headers["Subject"] = subject
+
+	// Статичные хедеры
+	headers["MIME-Version"] = "1.0"
+	headers["Content-Type"] = "text/html; charset=UTF-8"
+	headers["Content-Transfer-Encoding"] = "quoted-printable"
+	headers["Feedback-ID"] = feedbackId //"1324078:20488:trust:54854"
+	// Идентификатор представляет собой 32-битное число в диапазоне от 1 до 2147483647, либо строку длиной до 40 символов, состоящую из латинских букв, цифр и символов ".-_".
+	headers["List-Unsubscribe"] = unsubscribeUrl
+	headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+
+	//List-Unsubscribe-Post: List-Unsubscribe=One-Click
+	//List-Unsubscribe: <https://your-company-net/unsubscribe/example>
+	headers["Message-ID"] = messageId                // номер сообщения (внутренний номер)
+	headers["Received"] = "by MTA of BhojpurCRM"     // имя SMTP сервера
+	headers["X-Mailer"] = "BhojpurCRM Mailer v2.0.1" // какая программа
+
+	campaignId := "bhojpurcrm" + historyHashId
+	headers["X-Campaign"] = campaignId   // какая программа
+	headers["X-campaignid"] = campaignId // какая программа
+
+	return &headers
+}
+
+func getOptionsForDKIM(domain *WebSite, headers map[string]string) dkim.SigOptions {
+	options := dkim.NewSigOptions()
+	options.PrivateKey = []byte(domain.DKIMPrivateRSAKey)
+	options.Domain = domain.Hostname
+	options.Selector = domain.DKIMSelector // "dk1"
+	options.SignatureExpireIn = 0
+	options.BodyLength = 50
+	options.Headers = GetHeaderKeys(headers)
+	options.AddSignatureTimestamp = false
+	options.Canonicalization = "relaxed/relaxed"
+
+	return options
+}
+
+func getSignBody(headers *map[string]string, html string, webSite *WebSite) ([]byte, error) {
+
+	message := "" // return value
+
+	for k, v := range *headers {
+		message += fmt.Sprintf("%s: %s\r\n", k, v)
+	}
+
+	var buf bytes.Buffer // body of message
+	w := quotedprintable.NewWriter(&buf)
+	_, err := w.Write([]byte(html))
+	if err != nil {
+		return nil, err
+	}
+
+	if err = w.Close(); err != nil {
+		return nil, err
+	}
+
+	message += "\r\n" + buf.String()
+
+	// try DKIM
+	dkimOptions := getOptionsForDKIM(webSite, *headers)
+
+	body := []byte(message)
+	if err := dkim.Sign(&body, dkimOptions); err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+func getHostFromEmail(email string) (account, host string, err error) {
+	i := strings.LastIndexByte(email, '@')
+	if i == -1 {
+		return "", "", errors.New("Email не корректен")
+	}
+	account = email[:i]
+	host = email[i+1:]
+	return
+}
+
+func getClientByEmail(email string) (*smtp.Client, BounceType, error) {
+
+	// 1. Получаем хост, на который нужно отправить email
+	_, host, err := getHostFromEmail(email)
+	if err != nil {
+		return nil, hardBounced, err
+	}
+
+	// 2. Получаем список mx-ов, где может быть почтовый сервер
+	mx, err := net.LookupMX(host)
+	if err != nil {
+		return nil, softBounced, err
+	}
+
+	// список портов, к которым пробуем подключиться
+	var ports = []int{25, 2525, 587}
+	var client = new(smtp.Client)
+
+	// вообще-то надо подключаться к mx с наивысшем рейтингом.. ну да ладно =)
+	for i := range mx {
+		for j := range ports {
+			server := strings.TrimSuffix(mx[i].Host, ".")
+			hostPort := fmt.Sprintf("%s:%d", mx[i].Host, ports[j])
+
+			// Ждем {dialTimeout} секунд, для установки связи..
+			conn, err := net.DialTimeout("tcp", hostPort, dialTimeout)
+			if err != nil {
+				log.Printf("Коннект не прошел: %s\n", hostPort)
+				if j == len(ports)-1 {
+					return nil, softBounced, err
+				}
+				continue
+			}
+
+			// _client, err := smtp.Dial(conn, server)
+			_client, err := smtp.NewClient(conn, server)
+			if err != nil {
+				log.Printf("Не удалось подключиться: %s\n", server)
+				if j == len(ports)-1 {
+					return nil, softBounced, err
+				}
+				continue
+			}
+
+			tlc := &tls.Config{
+				InsecureSkipVerify: true,
+				ServerName:         mx[i].Host, // куда реально будем коннектиться
+				// ServerName: host,
+				// ServerName: server,
+			}
+			if err := _client.StartTLS(tlc); err != nil {
+				log.Println("Не удалось установить TLC")
+			}
+
+			client = _client
+			break
+		}
+	}
+
+	return client, "", nil
+}
+
+func sendMailByClient(client *smtp.Client, body []byte, to string, returnPath string) (BounceType, error) {
+
+	defer client.Close()
+
+	err := client.Mail(returnPath)
+	if err != nil {
+		return hardBounced, err
+	}
+
+	err = client.Rcpt(to)
+	if err != nil {
+		// return errors.New("Похоже, почтовый адрес не сущесвует")
+		return hardBounced, err
+	}
+
+	wc, err := client.Data()
+	if err != nil {
+		// return errors.New("Клиент не готовы принять сообщение")
+		return hardBounced, err
+	}
+	defer wc.Close()
+
+	_, err = wc.Write(body)
+	if err != nil {
+		return softBounced, err
+	}
+
+	// может вернуть (yandex): 250 2.0.0 Ok: queued on mxfront9q.mail.yandex.net as 1590262878-g7S0CPwaoz-fIVS8Xqq
+	// может вернуть (gmail): 250 2.0.0 OK  1590263113 j9si5638746ots.198 - gsmtp
+	// err = возвращает фактический статус, без него сообщение не отправляется
+	err = client.Quit()
+	if err != nil {
+		fmt.Println(err)
+		// todo: тут нуежн парсер результата
+		// return errors.New("Ошибка закрытия коннекта 1")
+	}
+
+	// tls: use of closed connection
+	// позволяет закрыть коннект в случае успешной отправки письма
+	/*err = client.Close()
+	if err != nil {
+		fmt.Println(err)
+		return errors.New("Ошибка закрытия коннекта 2")
+	}*/
+
+	return "", nil
+}
+
+// ### HELPERS ### //
+func MTALenChannel() uint {
+	return uint(len(smtpCh))
+}
+func MTACapChannel() uint {
+	return uint(cap(smtpCh))
+}

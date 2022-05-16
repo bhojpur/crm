@@ -1,0 +1,20 @@
+{
+    "button": {
+      "login": "Sign in",
+      "get-started": "Get started",
+      "recover": {
+        "label": "Recover",
+        "password": "Recover Password",
+        "username": "Recover Username",
+        "back-to-login": "Return to login page"
+      },
+      "checking": {
+        "await": "Authorization is in progress..",
+        "wait": "Please wait..."
+      },
+      "logout" : "Exit",
+      "create": {
+        "account": "Create account"
+      }
+    }
+  }

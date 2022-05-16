@@ -1,0 +1,8 @@
+{
+    "validation": {
+      "field": {
+        "required": "{field} is required",
+        "must-be-less": "{field} must be less than 25 characters"
+      }
+    }
+  }

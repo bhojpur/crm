@@ -1,0 +1,49 @@
+.vue-dadata {
+    &.complete {
+      & .vue-dadata__search {
+        input {
+          border-color: #949b9c !important;
+          background-color: rgb(236, 249, 244) !important;
+        }
+      }
+    }
+  
+    &.need-complete {
+      & .vue-dadata__search {
+        input {
+          border-color: #c12e18 !important;
+        }
+      }
+    }
+  }
+  
+  .vue-dadata__input {
+    height: unset !important;
+    padding: 6px 14px 5px !important;
+    border-radius: 3px !important;
+    background-color: white !important;
+  }
+  
+  .vue-dadata.complete .vue-dadata__search input {
+    background-color: white !important;
+  }
+  
+  .vue-dadata__suggestions {
+  
+    background-color: #f1fdff !important;
+  
+    &-item {
+  
+      &-highlight {
+        //background-color: rgba(145, 184, 129, 0.41) !important;
+      }
+  
+      &:hover {
+        background-color: rgba(255, 255, 255, 0.8) !important;;
+      }
+  
+      &_current {
+        //background-color: rgba(151, 193, 135, 0.22) !important;;
+      }
+    }
+  }

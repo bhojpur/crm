@@ -1,0 +1,78 @@
+project_name: crm
+before:
+  hooks:
+    - go mod tidy
+dist: release
+source:
+  enabled: true
+  name_template: '{{ .ProjectName }}-{{ .Tag }}-source'
+checksum:
+  name_template: '{{ .ProjectName }}-{{ .Tag }}-checksums.txt'
+builds:
+- id: crmctl
+  env:
+  - CGO_ENABLED=0
+  main: ./cmd/client/main.go
+  binary: crmctl
+  ldflags:
+  - -s -w
+  - -X "github.com/bhojpur/crm/pkg/version.Version={{.Version}}-{{.ShortCommit}}"
+  - -X "github.com/bhojpur/crm/pkg/version.BuildTime={{ time "2006-01-02 15:04:05 MST" }}"
+  - -X "github.com/bhojpur/crm/pkg/version.BuildCommit={{ .FullCommit }}"
+- id: crmsvr
+  env:
+  - CGO_ENABLED=0
+  main: ./cmd/server/main.go
+  binary: crmsvr
+  ldflags:
+  - -s -w
+  - -X "github.com/bhojpur/crm/pkg/version.Version={{.Version}}-{{.ShortCommit}}"
+  - -X "github.com/bhojpur/crm/pkg/version.BuildTime={{ time "2006-01-02 15:04:05 MST" }}"
+  - -X "github.com/bhojpur/crm/pkg/version.BuildCommit={{ .FullCommit }}"
+archives:
+- id: crmctl
+  files:
+  - "none*"
+  format: binary # this removes the tar of the archives, leaving the binaries alone
+  name_template: crmctl-{{ .Tag }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}
+  replacements:
+    darwin: Darwin
+    linux: Linux
+    386: i386
+    amd64: x86_64
+  builds:
+  - crmctl
+- id: crmsvr
+  files:
+  - "none*"
+  format: binary # this removes the tar of the archives, leaving the binaries alone
+  name_template: crmsvr-{{ .Tag }}-{{ .Os }}-{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}
+  builds:
+  - crmsvr
+  replacements:
+    darwin: Darwin
+    linux: Linux
+    386: i386
+    amd64: x86_64
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
+release:
+  prerelease: auto
+  header: |
+    Bhojpur CRM is a high performance customer relationship management system driving many distributed applications
+    and services running over the Bhojpur.NET Platform.
+dockers:
+  - goos: linux
+    goarch: amd64
+    goarm: ''
+    dockerfile: Dockerfile
+    image_templates:
+    - "ghcr.io/bhojpur/crm:{{ .Tag }}"
+    extra_files:
+    - README.md

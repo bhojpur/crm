@@ -1,0 +1,124 @@
+// чтобы русский язык в инпутах из глаз не вытекал...
+.v-label {
+    &:not(.v-label--active) { font-size: 15px !important; }
+  }
+  .v-input .v-input__slot .v-text-field__slot {
+    textarea, input[type="text"] {
+      font-size: 15px !important;
+      line-height: 1.2 !important;
+    }
+    textarea {
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+  }
+  
+  
+  .a-link {
+    transition: .1s ease-in-out;
+  
+    text-decoration: none;
+    border-bottom: 1px dotted #2c5d7b;
+    //border-bottom: 1px dotted map_get($light-blue, 'darken-4') !important;
+  
+    //text-decoration: none;
+    //border-bottom: 1px solid var(--v-anchor-base) !important;
+    &:hover {
+      //color: var(--v-primary-darken2)
+      color: darken(#2c5d7b, 2%) !important;
+      border-bottom-color: darken(#2c5d7b, 2%) !important;
+    }
+  }
+  
+  .form-auth {
+  
+    .v-input input {
+      max-height: 40px !important;
+    }
+  
+    &.form-login {
+      min-width: 360px;
+      max-width: 380px;
+    }
+  
+    &.form-sign-up {
+      min-width: 400px;
+      max-width: 420px;
+    }
+  
+    &.form-recover {
+      min-width: 420px;
+      max-width: 480px;
+    }
+  
+    @media screen and (max-width: 400px) {
+      &.form-login,
+      &.form-sign-up,
+      &.form-recover {
+        min-width: unset !important;
+        max-width: unset !important;
+        width: 100% !important;
+      }
+  
+    }
+  }
+  
+  
+  .list-active-menu-item-1 {
+    // border-left: 2px solid #244d42;
+    //  margin-left: -4px;
+    border-left-width: thin;
+    border-top: 1px solid #444444;
+    border-bottom: 1px solid #444444;
+    margin-top: -1px;
+    margin-bottom: -1px;
+  }
+  
+  /*.v-text-field .v-label  {
+    font-size: 14px !important;
+    pointer-events: all !important;
+  }*/
+  /*.v-input--is-label-active .v-text-field .v-label  {
+    font-size: 16px !important;
+    pointer-events: all !important;
+  }*/
+  
+  a.label-link {
+    color: #3374a8 !important;
+    text-decoration: none !important;
+  }
+  
+  
+  .v-input input,
+  .v-select {
+    font-size: 14px !important;
+  }
+  
+  .select-no-border {
+    margin-top: 0;
+    & .v-input__control {
+      & .v-text-field__details {
+        display: none;
+      }
+      & div[role="button"]{
+        &::before {
+          border: unset;
+        }
+        & .v-select__slot {
+          //margin-top: 14px;
+          //border: 1px dotted #d2d2d2;
+          & > .v-select__selections {
+  
+          }
+        }
+  
+        margin-bottom: 0;
+  
+      }
+    }
+  }
+  
+  .v-btn__content {
+    margin-top: 1px;
+  }
+  
